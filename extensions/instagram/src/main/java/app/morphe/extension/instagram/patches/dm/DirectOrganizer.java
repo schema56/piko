@@ -13,6 +13,7 @@ import android.text.InputType;
 import android.view.ViewGroup.LayoutParams;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.TextView;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -126,6 +127,105 @@ public final class DirectOrganizer {
     }
 
     /** Called from the long-press sheet patch with the pressed row's thread key. */
+    /** Cached reflection accessors for reading a row's thread key (resolved once per process). */
+    private static volatile java.lang.reflect.Field cachedRowSummaryField;
+    private static volatile java.lang.reflect.Method cachedKeyAccessor;
+
+    /**
+     * Reorders the inbox thread list in place: categorized chats grouped by category
+     * (in creation order) first, uncategorized chats keep their native order after.
+     * Called from the injected thread-store sort hook.
+     */
+    @SuppressWarnings("unchecked")
+    public static void reorderInbox(Object listObj) {
+        try {
+            java.util.List<Object> rows = (java.util.List<Object>) listObj;
+            if (rows.isEmpty()) {
+                return;
+            }
+            java.util.Map<String, java.util.List<Object>> byCategory = new java.util.LinkedHashMap<>();
+            java.util.List<Object> uncategorized = new ArrayList<>();
+            for (Object row : rows) {
+                String key = keyOf(row);
+                String category = key == null ? null : categoryOf(key);
+                if (category == null) {
+                    uncategorized.add(row);
+                } else {
+                    byCategory.computeIfAbsent(category, k -> new ArrayList<>()).add(row);
+                }
+            }
+            int index = 0;
+            PikoUtils.logger("DirectOrganizer: rows=" + rows.size()
+                    + " uncategorized=" + uncategorized.size()
+                    + " categories=" + byCategory.keySet());
+            for (String category : getCategories()) {
+                java.util.List<Object> group = byCategory.remove(category);
+                if (group == null) {
+                    continue;
+                }
+                for (Object row : group) {
+                    rows.set(index++, row);
+                }
+            }
+            for (java.util.List<Object> group : byCategory.values()) {
+                for (Object row : group) {
+                    rows.set(index++, row);
+                }
+            }
+            for (Object row : uncategorized) {
+                rows.set(index++, row);
+            }
+        } catch (Exception e) {
+            Logger.printException(() -> "DirectOrganizer reorder failed", e);
+        }
+    }
+
+    /** Thread key of an inbox row, read reflectively: row -> summary field -> DirectThreadKey getter. */
+    private static String keyOf(Object row) {
+        try {
+            if (cachedRowSummaryField != null && cachedKeyAccessor != null) {
+                Object summary = cachedRowSummaryField.get(row);
+                if (summary == null) {
+                    return null;
+                }
+                Object key = cachedKeyAccessor.invoke(summary);
+                return key == null ? null : key.toString();
+            }
+            for (java.lang.reflect.Field field : row.getClass().getDeclaredFields()) {
+                if (field.getType().isPrimitive()) {
+                    continue;
+                }
+                field.setAccessible(true);
+                Object value = field.get(row);
+                if (value == null) {
+                    continue;
+                }
+                for (java.lang.reflect.Method method : value.getClass().getMethods()) {
+                    if (method.getParameterCount() != 0
+                            || !method.getReturnType().getName()
+                                    .equals("com.instagram.model.direct.DirectThreadKey")) {
+                        continue;
+                    }
+                    Object key = method.invoke(value);
+                    if (key == null) {
+                        continue;
+                    }
+                    // Only bind to the first accessor that actually yields a key on a live row.
+                    cachedRowSummaryField = field;
+                    cachedKeyAccessor = method;
+                    PikoUtils.logger("DirectOrganizer: key accessor bound to field "
+                            + field.getName() + " via " + method.getName());
+                    return key.toString();
+                }
+            }
+            PikoUtils.logger("DirectOrganizer: no thread key accessor resolved");
+            return null;
+        } catch (Exception e) {
+            PikoUtils.logger("DirectOrganizer keyOf failed: " + e);
+            return null;
+        }
+    }
+
     /** Click listener for the sheet row; flips between categorize and uncategorize. */
     @SuppressWarnings("ClassNamingConvention")
     public static final class CategorizeClickListener implements android.view.View.OnClickListener {
@@ -182,30 +282,96 @@ public final class DirectOrganizer {
 
     public static void showCategorizeDialog(Activity activity, String threadKey) {
         try {
-            LinearLayout container = new LinearLayout(activity);
-            container.setOrientation(LinearLayout.VERTICAL);
-            int pad = (int) (16 * activity.getResources().getDisplayMetrics().density);
-            container.setPadding(pad, pad / 2, pad, 0);
+            boolean dark = (activity.getResources().getConfiguration().uiMode
+                    & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+                    == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+            int cardColor = dark ? 0xFF2C2C2E : 0xFFF2F2F7;
+            int textColor = dark ? 0xFFFFFFFF : 0xFF000000;
+            int separatorColor = dark ? 0xFF3A3A3C : 0xFFD1D1D6;
+            float density = activity.getResources().getDisplayMetrics().density;
+            int dp = (int) (density * 16);
+
+            LinearLayout card = new LinearLayout(activity);
+            card.setOrientation(LinearLayout.VERTICAL);
+            android.graphics.drawable.GradientDrawable cardBackground = new android.graphics.drawable.GradientDrawable();
+            cardBackground.setColor(cardColor);
+            cardBackground.setCornerRadius(14 * density);
+            card.setBackground(cardBackground);
+
+            TextView title = new TextView(activity);
+            title.setText("Categorizar chat");
+            title.setTextColor(textColor);
+            title.setTextSize(17);
+            title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            title.setGravity(android.view.Gravity.CENTER);
+            title.setPadding(dp, dp, dp, dp / 2);
+            card.addView(title, new LinearLayout.LayoutParams(
+                    LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
 
             final EditText input = new EditText(activity);
             input.setInputType(InputType.TYPE_CLASS_TEXT);
             input.setSingleLine(true);
-            container.addView(input, new LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            input.setTextColor(textColor);
+            input.setHintTextColor(0xFF8E8E93);
+            input.setHint("Nombre de la carpeta");
+            input.setBackground(null);
+            input.setGravity(android.view.Gravity.CENTER);
+            input.setTextSize(16);
+            card.addView(input, new LinearLayout.LayoutParams(
+                    LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
 
-            new android.app.AlertDialog.Builder(activity)
-                    .setTitle("Categorizar chat")
-                    .setView(container)
-                    .setPositiveButton(android.R.string.ok, (dialog, which) -> {
-                        String name = input.getText().toString().trim();
-                        if (!name.isEmpty()) {
-                            createCategory(name);
-                            assignThread(threadKey, name);
-                            PikoUtils.toast("Chat categorizado: " + name);
-                        }
-                    })
-                    .setNegativeButton(android.R.string.cancel, null)
-                    .show();
+            LinearLayout buttons = new LinearLayout(activity);
+            buttons.setOrientation(LinearLayout.HORIZONTAL);
+            TextView cancel = new TextView(activity);
+            cancel.setText("Cancelar");
+            cancel.setTextColor(0xFF0A84FF);
+            cancel.setTextSize(17);
+            cancel.setGravity(android.view.Gravity.CENTER);
+            cancel.setPadding(0, dp, 0, dp);
+            TextView create = new TextView(activity);
+            create.setText("Crear");
+            create.setTextColor(0xFF0A84FF);
+            create.setTextSize(17);
+            create.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            create.setGravity(android.view.Gravity.CENTER);
+            create.setPadding(0, dp, 0, dp);
+
+            buttons.addView(cancel, new LinearLayout.LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f));
+            android.view.View midDivider = new android.view.View(activity);
+            midDivider.setBackgroundColor(separatorColor);
+            buttons.addView(midDivider, new LinearLayout.LayoutParams(
+                    (int) (density * 1), LayoutParams.MATCH_PARENT));
+            buttons.addView(create, new LinearLayout.LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f));
+            LinearLayout buttonsWrap = new LinearLayout(activity);
+            buttonsWrap.setOrientation(LinearLayout.VERTICAL);
+            android.view.View topDivider = new android.view.View(activity);
+            topDivider.setBackgroundColor(separatorColor);
+            buttonsWrap.addView(topDivider, new LinearLayout.LayoutParams(
+                    LayoutParams.MATCH_PARENT, (int) (density * 1)));
+            buttonsWrap.addView(buttons, new LinearLayout.LayoutParams(
+                    LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
+            card.addView(buttonsWrap, new LinearLayout.LayoutParams(
+                    LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
+
+            android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(activity)
+                    .setView(card)
+                    .create();
+            dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            cancel.setOnClickListener(v -> dialog.dismiss());
+            create.setOnClickListener(v -> {
+                String name = input.getText().toString().trim();
+                if (!name.isEmpty()) {
+                    createCategory(name);
+                    assignThread(threadKey, name);
+                    PikoUtils.toast("Chat categorizado: " + name);
+                }
+                dialog.dismiss();
+            });
+            dialog.show();
+            android.view.Window window = dialog.getWindow();
+            if (window != null) {
+                window.setLayout((int) (270 * density), LayoutParams.WRAP_CONTENT);
+            }
         } catch (Exception e) {
             Logger.printException(() -> "DirectOrganizer dialog failed", e);
         }
