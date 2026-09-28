@@ -161,6 +161,7 @@ public final class DirectOrganizer {
     public static void onThreadMenuBuilt(Object sheetConfig, Object threadKeyObj, android.view.View anchorView) {
         try {
             String threadKey = String.valueOf(threadKeyObj);
+            String rowLabel = categoryOf(threadKey) != null ? "Descategorizar" : "Categorizar";
             android.content.Context context = anchorView.getContext();
             for (java.lang.reflect.Method method : sheetConfig.getClass().getMethods()) {
                 Class<?>[] params = method.getParameterTypes();
