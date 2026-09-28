@@ -85,6 +85,14 @@ public final class DirectOrganizer {
         writeLines(KEY_ASSIGNMENTS, rows);
     }
 
+    /** Removes a thread's category assignment so it returns to the main inbox list. */
+    public static void unassignThread(String threadKey) {
+        Set<String> rows = new LinkedHashSet<>(readLines(KEY_ASSIGNMENTS));
+        if (rows.removeIf(row -> row.endsWith(SEPARATOR + threadKey))) {
+            writeLines(KEY_ASSIGNMENTS, rows);
+        }
+    }
+
     /** Category of a thread, or null when uncategorized. */
     public static String categoryOf(String threadKey) {
         for (String row : readLines(KEY_ASSIGNMENTS)) {
@@ -118,7 +126,7 @@ public final class DirectOrganizer {
     }
 
     /** Called from the long-press sheet patch with the pressed row's thread key. */
-    /** Click listener for the "Categorizar" row; captures the pressed chat's key. */
+    /** Click listener for the sheet row; flips between categorize and uncategorize. */
     @SuppressWarnings("ClassNamingConvention")
     public static final class CategorizeClickListener implements android.view.View.OnClickListener {
         private final android.content.Context context;
@@ -131,6 +139,12 @@ public final class DirectOrganizer {
 
         @Override
         public void onClick(android.view.View v) {
+            String current = categoryOf(threadKey);
+            if (current != null) {
+                unassignThread(threadKey);
+                PikoUtils.toast("Chat descategorizado");
+                return;
+            }
             if (context instanceof Activity) {
                 showCategorizeDialog((Activity) context, threadKey);
             } else {
@@ -147,6 +161,7 @@ public final class DirectOrganizer {
     public static void onThreadMenuBuilt(Object sheetConfig, Object threadKeyObj, Object anchorView) {
         try {
             String threadKey = String.valueOf(threadKeyObj);
+            String rowLabel = categoryOf(threadKey) != null ? "Descategorizar" : "Categorizar";
             android.content.Context context = ((android.view.View) anchorView).getContext();
             for (java.lang.reflect.Method method : sheetConfig.getClass().getMethods()) {
                 Class<?>[] params = method.getParameterTypes();
@@ -156,7 +171,7 @@ public final class DirectOrganizer {
                         || params[1] != android.view.View.OnClickListener.class) {
                     continue;
                 }
-                method.invoke(sheetConfig, "Categorizar", new CategorizeClickListener(context, threadKey));
+                method.invoke(sheetConfig, rowLabel, new CategorizeClickListener(context, threadKey));
                 return;
             }
             Logger.printException(() -> "DirectOrganizer: no row-adding method found on the menu config");
