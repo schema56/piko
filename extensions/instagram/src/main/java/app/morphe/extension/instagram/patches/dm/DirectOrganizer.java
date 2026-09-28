@@ -155,9 +155,8 @@ public final class DirectOrganizer {
                 }
             }
             int index = 0;
-            PikoUtils.logger("DirectOrganizer: rows=" + rows.size()
-                    + " uncategorized=" + uncategorized.size()
-                    + " categories=" + byCategory.keySet());
+            PikoUtils.toast("Org: " + rows.size() + " filas, " + uncategorized.size()
+                    + " sin categoria, carpetas=" + byCategory.keySet());
             for (String category : getCategories()) {
                 java.util.List<Object> group = byCategory.remove(category);
                 if (group == null) {
