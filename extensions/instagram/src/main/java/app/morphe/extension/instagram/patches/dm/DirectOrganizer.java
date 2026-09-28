@@ -118,6 +118,53 @@ public final class DirectOrganizer {
     }
 
     /** Called from the long-press sheet patch with the pressed row's thread key. */
+    /** Click listener for the "Categorizar" row; captures the pressed chat's key. */
+    @SuppressWarnings("ClassNamingConvention")
+    public static final class CategorizeClickListener implements android.view.View.OnClickListener {
+        private final android.content.Context context;
+        private final String threadKey;
+
+        private CategorizeClickListener(android.content.Context context, String threadKey) {
+            this.context = context;
+            this.threadKey = threadKey;
+        }
+
+        @Override
+        public void onClick(android.view.View v) {
+            if (context instanceof Activity) {
+                showCategorizeDialog((Activity) context, threadKey);
+            } else {
+                PikoUtils.toast("Categorizar: pantalla no disponible");
+            }
+        }
+    }
+
+    /**
+     * Called from the injected long-press menu builder once the native option rows
+     * are configured. Adds a "Categorizar" row to the sheet config by discovering
+     * its row-adding method by signature (String, View.OnClickListener) -> void.
+     */
+    public static void onThreadMenuBuilt(Object sheetConfig, Object threadKeyObj, Object anchorView) {
+        try {
+            String threadKey = String.valueOf(threadKeyObj);
+            android.content.Context context = ((android.view.View) anchorView).getContext();
+            for (java.lang.reflect.Method method : sheetConfig.getClass().getMethods()) {
+                Class<?>[] params = method.getParameterTypes();
+                if (method.getReturnType() != void.class
+                        || params.length != 2
+                        || params[0] != String.class
+                        || params[1] != android.view.View.OnClickListener.class) {
+                    continue;
+                }
+                method.invoke(sheetConfig, "Categorizar", new CategorizeClickListener(context, threadKey));
+                return;
+            }
+            Logger.printException(() -> "DirectOrganizer: no row-adding method found on the menu config");
+        } catch (Exception e) {
+            Logger.printException(() -> "DirectOrganizer menu hook failed", e);
+        }
+    }
+
     public static void showCategorizeDialog(Activity activity, String threadKey) {
         try {
             LinearLayout container = new LinearLayout(activity);
