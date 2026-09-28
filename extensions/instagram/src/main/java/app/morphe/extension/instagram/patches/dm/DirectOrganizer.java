@@ -158,11 +158,10 @@ public final class DirectOrganizer {
      * are configured. Adds a "Categorizar" row to the sheet config by discovering
      * its row-adding method by signature (String, View.OnClickListener) -> void.
      */
-    public static void onThreadMenuBuilt(Object sheetConfig, Object threadKeyObj, Object anchorView) {
+    public static void onThreadMenuBuilt(Object sheetConfig, Object threadKeyObj, android.view.View anchorView) {
         try {
             String threadKey = String.valueOf(threadKeyObj);
-            String rowLabel = categoryOf(threadKey) != null ? "Descategorizar" : "Categorizar";
-            android.content.Context context = ((android.view.View) anchorView).getContext();
+            android.content.Context context = anchorView.getContext();
             for (java.lang.reflect.Method method : sheetConfig.getClass().getMethods()) {
                 Class<?>[] params = method.getParameterTypes();
                 if (method.getReturnType() != void.class
