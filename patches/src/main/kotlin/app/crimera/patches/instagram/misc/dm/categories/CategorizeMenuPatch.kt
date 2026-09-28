@@ -6,6 +6,7 @@
 
 package app.crimera.patches.instagram.misc.dm.categories
 
+import app.crimera.patches.instagram.misc.settings.settingsPatch
 import app.crimera.patches.instagram.utils.Constants.COMPATIBILITY_INSTAGRAM
 import app.crimera.patches.instagram.utils.Constants.PATCHES_DESCRIPTOR
 import app.morphe.patcher.extensions.InstructionExtensions.addInstructions
@@ -27,6 +28,9 @@ val categorizeMenuPatch =
         description = "Adds a \"Categorizar\" option to the chat long-press menu for organizing chats into folders.",
         default = true,
     ) {
+        // settingsPatch brings the shared extension dex merge; without it the hook
+        // class would not exist in the patched app.
+        dependsOn(settingsPatch)
         compatibleWith(COMPATIBILITY_INSTAGRAM)
 
         execute {
